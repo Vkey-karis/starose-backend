@@ -19,6 +19,7 @@ const app = express();
 
 app.use(cors({
     origin: process.env.FRONTEND_URL,
+    'https://starosecyber.netlify.app'
 }));
 
 app.use(express.json());
