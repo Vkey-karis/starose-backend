@@ -1,5 +1,5 @@
 // controllers/itemController.js
-import Item from '../models/itemModel.js';
+import Item from '../models/Item.js';
 import asyncHandler from 'express-async-handler';
 
 // @desc    Create a new item
