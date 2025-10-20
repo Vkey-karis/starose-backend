@@ -8,7 +8,7 @@ import asyncHandler from 'express-async-handler';
 export const createItem = asyncHandler(async (req, res) => {
     const { name, category, buyingPrice, defaultSellingPrice, quantity, lowStockThreshold } = req.body;
 
-    const existingItem = await Item.findOne({ name });
+    const existingItem = await Item.findOne({ name: { $regex: new RegExp(`^${name}$`, 'i') } });
     if (existingItem) {
         res.status(400);
         throw new Error('Item with this name already exists');
@@ -26,28 +26,40 @@ export const createItem = asyncHandler(async (req, res) => {
     res.status(201).json(item);
 });
 
-// @desc    Get all items (with pagination or full list)
+// @desc    Get all items (supports search + pagination)
 // @route   GET /api/items
 // @access  Private
 export const getItems = asyncHandler(async (req, res) => {
-    const { page = 1, limit = 20, all = false } = req.query;
-
     try {
-        // If ?all=true is provided, return all items without pagination
+        const { page = 1, limit = 20, search = '', all = false } = req.query;
+
+        // Build search filter
+        const filter = search
+            ? {
+                  $or: [
+                      { name: { $regex: search, $options: 'i' } },
+                      { category: { $regex: search, $options: 'i' } },
+                  ],
+              }
+            : {};
+
+        // Return all items (e.g. for dropdowns)
         if (all === 'true') {
-            const items = await Item.find().sort({ createdAt: -1 });
+            const items = await Item.find(filter).sort({ createdAt: -1 });
             return res.json({ items, total: items.length });
         }
 
         const skip = (Number(page) - 1) * Number(limit);
-        const total = await Item.countDocuments();
-        const items = await Item.find()
+        const total = await Item.countDocuments(filter);
+
+        const items = await Item.find(filter)
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(Number(limit));
 
         res.json({
             items,
+            total,
             page: Number(page),
             pages: Math.ceil(total / limit),
         });
