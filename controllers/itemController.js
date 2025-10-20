@@ -1,75 +1,66 @@
-
+// controllers/itemController.js
+import Item from '../models/itemModel.js';
 import asyncHandler from 'express-async-handler';
-import { validationResult } from 'express-validator';
-import Item from '../models/Item.js';
 
 // @desc    Create a new item
 // @route   POST /api/items
 // @access  Private
-const createItem = asyncHandler(async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+export const createItem = asyncHandler(async (req, res) => {
+    const { name, category, buyingPrice, defaultSellingPrice, quantity, lowStockThreshold } = req.body;
+
+    const existingItem = await Item.findOne({ name });
+    if (existingItem) {
+        res.status(400);
+        throw new Error('Item with this name already exists');
     }
 
-    const { name, category, buyingPrice, defaultSellingPrice, quantity, lowStockThreshold, sku } = req.body;
-
-    if (sku) {
-        const skuExists = await Item.findOne({ sku });
-        if (skuExists) {
-            res.status(400);
-            throw new Error('Item with this SKU already exists');
-        }
-    }
-
-    const item = new Item({
+    const item = await Item.create({
         name,
         category,
         buyingPrice,
         defaultSellingPrice,
         quantity,
         lowStockThreshold,
-        sku,
-        lastRestockDate: new Date(),
     });
 
-    const createdItem = await item.save();
-    res.status(201).json(createdItem);
+    res.status(201).json(item);
 });
 
-// @desc    Get all items with filtering and pagination
+// @desc    Get all items (with pagination or full list)
 // @route   GET /api/items
 // @access  Private
-const getItems = asyncHandler(async (req, res) => {
-    const pageSize = 10;
-    const page = Number(req.query.page) || 1;
-    
-    const keyword = req.query.keyword
-        ? {
-              name: {
-                  $regex: req.query.keyword,
-                  $options: 'i',
-              },
-          }
-        : {};
+export const getItems = asyncHandler(async (req, res) => {
+    const { page = 1, limit = 20, all = false } = req.query;
 
-    const category = req.query.category ? { category: req.query.category } : {};
+    try {
+        // If ?all=true is provided, return all items without pagination
+        if (all === 'true') {
+            const items = await Item.find().sort({ createdAt: -1 });
+            return res.json({ items, total: items.length });
+        }
 
-    const count = await Item.countDocuments({ ...keyword, ...category });
-    const items = await Item.find({ ...keyword, ...category })
-        .limit(pageSize)
-        .skip(pageSize * (page - 1))
-        .sort({ createdAt: -1 });
+        const skip = (Number(page) - 1) * Number(limit);
+        const total = await Item.countDocuments();
+        const items = await Item.find()
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(Number(limit));
 
-    const categories = await Item.find().distinct('category');
-
-    res.json({ items, page, pages: Math.ceil(count / pageSize), categories, count });
+        res.json({
+            items,
+            page: Number(page),
+            pages: Math.ceil(total / limit),
+        });
+    } catch (error) {
+        console.error('Error fetching items:', error.message);
+        res.status(500).json({ message: 'Failed to fetch items.' });
+    }
 });
 
-// @desc    Get a single item by ID
+// @desc    Get single item by ID
 // @route   GET /api/items/:id
 // @access  Private
-const getItemById = asyncHandler(async (req, res) => {
+export const getItemById = asyncHandler(async (req, res) => {
     const item = await Item.findById(req.params.id);
     if (item) {
         res.json(item);
@@ -79,56 +70,39 @@ const getItemById = asyncHandler(async (req, res) => {
     }
 });
 
-// @desc    Update an item
+// @desc    Update item
 // @route   PUT /api/items/:id
 // @access  Private
-const updateItem = asyncHandler(async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-    }
-    
-    const { name, category, buyingPrice, defaultSellingPrice, quantity, lowStockThreshold, sku } = req.body;
-    
+export const updateItem = asyncHandler(async (req, res) => {
+    const { name, category, buyingPrice, defaultSellingPrice, quantity, lowStockThreshold } = req.body;
+
     const item = await Item.findById(req.params.id);
-
-    if (item) {
-        const originalQuantity = item.quantity;
-
-        item.name = name;
-        item.category = category;
-        item.buyingPrice = buyingPrice;
-        item.defaultSellingPrice = defaultSellingPrice;
-        item.quantity = quantity;
-        item.lowStockThreshold = lowStockThreshold;
-        item.sku = sku;
-
-        // If quantity is increased, it's a restock
-        if (quantity > originalQuantity) {
-            item.lastRestockDate = new Date();
-        }
-
-        const updatedItem = await item.save();
-        res.json(updatedItem);
-    } else {
+    if (!item) {
         res.status(404);
         throw new Error('Item not found');
     }
+
+    item.name = name || item.name;
+    item.category = category || item.category;
+    item.buyingPrice = buyingPrice || item.buyingPrice;
+    item.defaultSellingPrice = defaultSellingPrice || item.defaultSellingPrice;
+    item.quantity = quantity || item.quantity;
+    item.lowStockThreshold = lowStockThreshold || item.lowStockThreshold;
+
+    const updatedItem = await item.save();
+    res.json(updatedItem);
 });
 
-// @desc    Delete an item
+// @desc    Delete item
 // @route   DELETE /api/items/:id
 // @access  Private
-const deleteItem = asyncHandler(async (req, res) => {
+export const deleteItem = asyncHandler(async (req, res) => {
     const item = await Item.findById(req.params.id);
-
-    if (item) {
-        await Item.deleteOne({ _id: req.params.id });
-        res.json({ message: 'Item removed' });
-    } else {
+    if (!item) {
         res.status(404);
         throw new Error('Item not found');
     }
-});
 
-export { createItem, getItems, getItemById, updateItem, deleteItem };
+    await item.deleteOne();
+    res.json({ message: 'Item removed successfully' });
+});
